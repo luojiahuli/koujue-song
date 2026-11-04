@@ -1,0 +1,12 @@
+{
+  "name": "koujue-song",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "把学习材料变成押韵口诀歌的网站",
+  "scripts": {
+    "dev": "npx wrangler pages dev",
+    "deploy": "npx wrangler pages deploy",
+    "check": "node --check public/app.js && node --check public/music.js && node --check functions/api/generate.js && node --check functions/api/tts.js"
+  }
+}

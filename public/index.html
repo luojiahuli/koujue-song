@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>口诀成歌 · 把背不下来的，唱一遍</title>
+  <meta name="description" content="粘贴笔记或文档，AI 提炼押韵口诀，生成旋律人声，一首歌背下一个知识点。" />
+  <meta name="theme-color" content="#12100d" />
+  <meta property="og:title" content="口诀成歌 · 把背不下来的，唱一遍" />
+  <meta property="og:description" content="粘贴笔记或文档，AI 提炼押韵口诀，生成旋律人声，一首歌背下一个知识点。" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#composer">跳到输入框</a>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="site-head">
+    <a class="brand" href="/" aria-label="口诀成歌首页">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="29" height="29" rx="4" fill="none" stroke="currentColor" stroke-width="1.4" />
+        <path d="M8 18v-4M12 22V10M16 19v-6M20 23V9M24 17v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+      </svg>
+      <span>口诀成歌</span>
+    </a>
+    <nav class="site-nav" aria-label="主导航">
+      <a href="#method">方法</a>
+      <a href="#stage" id="navWorks">作品</a>
+      <a href="https://github.com/luojiahuli/koujue-song" rel="noopener" target="_blank">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="workspace" aria-labelledby="heroTitle">
+      <div class="intro">
+        <p class="kicker">中文助记工具</p>
+        <h1 id="heroTitle">背不下来的，<br /><span class="accent-word">唱</span>一遍。</h1>
+        <p class="lede">粘贴笔记或文档，AI 抽出要点、压成韵脚，再配一段旋律，开口就能记住。</p>
+
+        <div class="samples" aria-label="示例材料">
+          <span class="samples-label">试试：</span>
+          <button class="chip" data-sample="cpr">心肺复苏</button>
+          <button class="chip" data-sample="photosynthesis">光合作用</button>
+          <button class="chip" data-sample="goodfaith">善意取得</button>
+        </div>
+
+        <div class="promise">
+          <div class="promise-item">
+            <span class="promise-num">5 到 8</span>
+            <span class="promise-text">个要点，够短才记得住</span>
+          </div>
+          <div class="promise-item">
+            <span class="promise-num">7</span>
+            <span class="promise-text">字一句，像顺口溜</span>
+          </div>
+          <div class="promise-item">
+            <span class="promise-num">4</span>
+            <span class="promise-text">种曲风，随你挑</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer" id="composer">
+        <div class="composer-head">
+          <label for="source">学习材料</label>
+          <span id="charCount" class="char-count">0 / 8000</span>
+        </div>
+        <textarea id="source" maxlength="8000" spellcheck="false"
+          placeholder="把要背的内容贴在这里。笔记、讲义、法条、单词表都可以。"></textarea>
+
+        <div class="composer-tools">
+          <label class="file-btn">
+            <input type="file" id="fileInput" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden />
+            导入文本文件
+          </label>
+          <button type="button" class="link-btn" id="clearBtn">清空</button>
+        </div>
+
+        <fieldset class="style-picker">
+          <legend>曲风</legend>
+          <div class="segmented" role="radiogroup" aria-label="选择曲风">
+            <button type="button" role="radio" aria-checked="true" data-style="folk" class="is-on">轻快民谣</button>
+            <button type="button" role="radio" aria-checked="false" data-style="ballad">抒情钢琴</button>
+            <button type="button" role="radio" aria-checked="false" data-style="hiphop">说唱节拍</button>
+            <button type="button" role="radio" aria-checked="false" data-style="nursery">童谣</button>
+          </div>
+        </fieldset>
+
+        <button type="button" class="primary-btn" id="generateBtn">
+          <span class="btn-label">生成口诀歌</span>
+          <span class="btn-arrow" aria-hidden="true">→</span>
+        </button>
+        <p class="form-hint" id="formHint">建议 100 字以上。要点越集中，韵脚越准。</p>
+        <p class="form-error" id="formError" role="alert" hidden></p>
+      </div>
+    </section>
+
+    <section class="stage" id="stage" aria-labelledby="songTitle" hidden>
+      <div class="stage-head">
+        <div>
+          <p class="stage-label">你的口诀歌</p>
+          <h2 id="songTitle" tabindex="-1">准备好了</h2>
+          <p class="song-summary" id="songSummary"></p>
+        </div>
+        <div class="song-meta" id="songMeta"></div>
+      </div>
+
+      <div class="stage-grid">
+        <div class="lyrics-panel">
+          <div class="player">
+            <button type="button" class="play-btn" id="playBtn">
+              <span class="play-glyph" aria-hidden="true">▶</span>
+              <span class="play-text">播放</span>
+            </button>
+            <div class="wave-wrap" aria-hidden="true">
+              <canvas id="waveCanvas"></canvas>
+            </div>
+            <span class="play-state" id="playState"></span>
+          </div>
+          <ol class="lyrics" id="lyrics"></ol>
+        </div>
+
+        <aside class="points-panel">
+          <h3>要点骨架</h3>
+          <ol class="points" id="points"></ol>
+          <div class="actions">
+            <button type="button" class="action-btn" id="downloadBtn" disabled>下载音频</button>
+            <button type="button" class="action-btn" id="copyBtn">复制歌词</button>
+            <button type="button" class="action-btn" id="againBtn">换一版</button>
+          </div>
+          <p class="audio-note" id="audioNote">正在准备人声…</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="method" id="method" aria-labelledby="methodTitle">
+      <h2 id="methodTitle">从材料到一首歌，只要三步。</h2>
+      <ol class="steps">
+        <li class="step">
+          <span class="step-num" aria-hidden="true">一</span>
+          <div class="step-body">
+            <h3>贴进材料</h3>
+            <p>讲义、笔记、法条都行。纯文本最多 8000 字，超出部分会截断。</p>
+          </div>
+          <span class="step-note">粘贴或导入 .txt / .md</span>
+        </li>
+        <li class="step">
+          <span class="step-num" aria-hidden="true">二</span>
+          <div class="step-body">
+            <h3>提炼要点</h3>
+            <p>模型找出真正要记的 5 到 8 个点，逐条写成七个字上下的句子。</p>
+          </div>
+          <span class="step-note">Workers AI 中文提炼</span>
+        </li>
+        <li class="step">
+          <span class="step-num" aria-hidden="true">三</span>
+          <div class="step-body">
+            <h3>押韵成歌</h3>
+            <p>选曲风，人声与伴奏同步播放。歌词逐句高亮，还能导出 WAV。</p>
+          </div>
+          <span class="step-note">浏览器实时合成</span>
+        </li>
+      </ol>
+    </section>
+
+    <section class="manifesto" aria-label="关于记忆">
+      <p class="manifesto-line">「记住」不必是苦差，<br />它有节奏，也有韵脚。</p>
+      <p class="manifesto-sub">先唱顺，再理解细节。适合考前突击，也适合给小朋友讲清楚一件事。</p>
+    </section>
+  </main>
+
+  <footer class="site-foot">
+    <span>口诀成歌</span>
+    <span class="foot-note">由 Cloudflare Workers AI 提供口诀与配音</span>
+    <a href="https://github.com/luojiahuli/koujue-song" rel="noopener" target="_blank">源代码</a>
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
