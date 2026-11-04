@@ -111,7 +111,7 @@ function renderSkeleton() {
   els.stage.scrollIntoView({ behavior: reduceMotion.matches ? "auto" : "smooth", block: "start" });
   els.songTitle.textContent = "正在提炼要点";
   els.songSummary.textContent = "把材料读一遍，找出真正值得记的那几句。";
-  els.songMeta.textContent = "Workers AI";
+  els.songMeta.textContent = "MiniMax M3";
   els.lyrics.innerHTML = Array.from({ length: 8 })
     .map((_, i) => `<li class="lyric-line"><span class="line-no">${String(i + 1).padStart(2, "0")}</span><span class="line-text"><span class="sk sk-line"></span></span></li>`)
     .join("");

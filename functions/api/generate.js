@@ -1,8 +1,10 @@
 const MAX_CHARS = 8000;
+const MINIMAX_URL = "https://api.minimaxi.com/v1/chat/completions";
+const MINIMAX_MODEL = "MiniMax-M3";
 const MODELS = [
-  "@cf/qwen/qwen1.5-14b-chat-awq",
-  "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-  "@cf/meta/llama-3.1-8b-instruct",
+  { id: "@cf/qwen/qwen3-30b-a3b-fp8", options: { enable_thinking: false } },
+  { id: "@cf/qwen/qwen2.5-coder-32b-instruct", options: {} },
+  { id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", options: {} },
 ];
 
 const STYLE_TONE = {
@@ -15,9 +17,9 @@ const STYLE_TONE = {
 const SYSTEM_PROMPT = `你是一位中文记忆教练，也是一位押韵写手。你的任务是把学习材料改写成一首方便背诵的中文口诀歌。
 
 必须遵守：
-1. 提炼 5 到 8 条关键要点，每条不超过 18 个字。
-2. 写出 8 到 12 句口诀，每句 5 到 9 个汉字。四句一组，双数句尽量押韵。
-3. 句子要像顺口溜，有节奏，能直接读出声。
+1. 提炼 5 到 8 条关键要点，每条 10 到 18 个字。
+2. 写出 8 到 12 句口诀，每句正好 7 个汉字，句子里不加标点。
+3. 每四句一组，第 2、4、6、8 句押同一个韵。用大白话，不要文言。
 4. 不得编造材料里没有的事实。数字、顺序、专有名词、条件必须与材料一致。
 5. 不用 Markdown，不用代码块，不要解释，只输出一个 JSON 对象。
 
@@ -51,24 +53,29 @@ export async function onRequestPost(context) {
     },
   ];
 
+  if (env.MINIMAX_API_KEY) {
+    try {
+      return json(await runMiniMax(env, messages, style));
+    } catch (err) {
+      console.log("minimax failed", err && err.message);
+    }
+  }
+
   let lastError = null;
   for (const model of MODELS) {
     try {
-      const out = await env.AI.run(model, {
+      const out = await env.AI.run(model.id, {
         messages,
-        max_tokens: 1400,
+        max_tokens: 1600,
         temperature: 0.7,
+        ...model.options,
       });
-      const raw =
-        (out && (out.response ?? out.result?.response ?? out.text)) ||
-        (typeof out === "string" ? out : null);
-      if (!raw) throw new Error("empty response");
-      const parsed = parseJson(raw);
+      const parsed = extractResult(out);
       const result = sanitize(parsed, style);
-      return json({ ...result, model, style });
+      return json({ ...result, model: model.id, style });
     } catch (err) {
       lastError = err;
-      console.log("generate failed", model, err && err.message);
+      console.log("generate failed", model.id, err && err.message);
     }
   }
 
@@ -76,6 +83,54 @@ export async function onRequestPost(context) {
     { error: "模型忙不过来了，请稍后再试。", detail: lastError ? String(lastError.message || lastError) : "" },
     502
   );
+}
+
+async function runMiniMax(env, messages, style) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch(MINIMAX_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${env.MINIMAX_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: MINIMAX_MODEL,
+        messages,
+        max_tokens: 1500,
+        temperature: 0.65,
+        thinking: { type: "disabled" },
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`minimax http ${res.status}`);
+    const data = await res.json();
+    const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if (!content) throw new Error("minimax empty content");
+    const result = sanitize(parseJson(content), style);
+    return { ...result, model: MINIMAX_MODEL, provider: "minimax", style };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function extractResult(out) {
+  if (!out) throw new Error("empty response");
+  if (out.response && typeof out.response === "object" && Array.isArray(out.response.verse)) {
+    return out.response;
+  }
+  const message = out.choices && out.choices[0] && out.choices[0].message;
+  if (message) {
+    const parts = [message.content, message.reasoning, message.reasoning_content].filter(
+      (value) => typeof value === "string" && value.trim()
+    );
+    if (parts.length) return parseJson(parts.join("\n"));
+  }
+  if (typeof out.response === "string") return parseJson(out.response);
+  if (typeof out.text === "string") return parseJson(out.text);
+  if (typeof out === "string") return parseJson(out);
+  throw new Error("unrecognized model response");
 }
 
 function parseJson(raw) {
@@ -107,10 +162,10 @@ function sanitize(data, style) {
     ? data.points.map((p) => cleanLine(p, 40)).filter(Boolean).slice(0, 8)
     : [];
   const verse = Array.isArray(data.verse)
-    ? data.verse.map((v) => cleanLine(v, 40)).filter(Boolean).slice(0, 16)
+    ? data.verse.map((v) => cleanLine(v, 40)).filter(Boolean).slice(0, 12)
     : [];
 
-  if (points.length < 2 || verse.length < 4) {
+  if (points.length < 3 || verse.length < 6) {
     throw new Error("incomplete result");
   }
 

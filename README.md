@@ -7,9 +7,9 @@
 ## 能做什么
 
 - 粘贴文本或导入 `.txt` / `.md`，最多 8000 字
-- Workers AI 提炼 5 到 8 个要点，写成 8 到 12 句押韵口诀
+- MiniMax M3 提炼 5 到 8 个要点，写成 8 到 12 句押韵口诀
 - 四种曲风：轻快民谣、抒情钢琴、说唱节拍、童谣
-- Web Speech 中文朗读，或 Workers AI MeloTTS 合成人声
+- Workers AI MeloTTS 合成人声，不可用时退回浏览器朗读
 - Web Audio 实时合成和弦、贝斯、鼓点，歌词逐句高亮
 - 一键导出 WAV（人声可用时包含人声，否则导出伴奏）
 
@@ -18,12 +18,12 @@
 - 前端：原生 HTML / CSS / ES Modules，零构建
 - 音频：Web Audio API 实时合成 + OfflineAudioContext 离线渲染
 - 后端：Cloudflare Pages Functions
-- 模型：`@cf/qwen/qwen1.5-14b-chat-awq` 为主，失败时自动切到 Llama
+- 模型：MiniMax M3 为主（`MINIMAX_API_KEY`），失败时自动退回 Workers AI（Qwen3-30B / Qwen2.5-Coder / Llama 3.3）
 - 配音：`@cf/myshell-ai/melotts`，不可用时前端降级为系统朗读
 
 ## 本地开发
 
-需要登录 Wrangler，因为 Pages Functions 会调用远程 Workers AI：
+需要登录 Wrangler，因为 Pages Functions 会调用远程 Workers AI，口诀生成还需要 MiniMax 密钥：
 
 ```bash
 npx wrangler login
