@@ -241,15 +241,22 @@ function normalizeResult(data, style) {
 }
 
 async function postTtsLine(text) {
-  const res = await fetch("/api/tts", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text }),
-  });
-  if (!res.ok) throw new Error("tts failed");
-  const data = await res.json();
-  if (!data || !data.audio) throw new Error("no audio");
-  return base64ToArrayBuffer(data.audio);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error("tts failed");
+    const data = await res.json();
+    if (!data || !data.audio) throw new Error("no audio");
+    return base64ToArrayBuffer(data.audio);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function base64ToArrayBuffer(base64) {
