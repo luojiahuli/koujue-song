@@ -1,5 +1,13 @@
 const midiToHz = (n) => 440 * Math.pow(2, (n - 69) / 12);
 
+// 每句的音高轮廓（音阶级数），四句一循环，避免每句唱得一样
+const CONTOURS = [
+  [0, 1, 2, 1, 3, 2, 1],
+  [2, 1, 0, 1, 2, 3, 2],
+  [0, 2, 1, 3, 2, 1, 0],
+  [1, 2, 3, 2, 1, 0, 1],
+];
+
 export const STYLES = {
   folk: {
     name: "轻快民谣",
@@ -19,6 +27,8 @@ export const STYLES = {
     snare: [1, 3],
     hat: "eighth",
     swing: 0,
+    scale: [0, 2, 4, 7, 9],
+    rhythm: [0, 0.5, 1, 1.5, 2, 2.5, 3],
   },
   ballad: {
     name: "抒情钢琴",
@@ -38,6 +48,8 @@ export const STYLES = {
     snare: [1, 3],
     hat: "quarter",
     swing: 0,
+    scale: [0, 2, 4, 5, 7, 9, 11],
+    rhythm: [0, 0.6, 1.2, 1.8, 2.4, 3, 3.5],
   },
   hiphop: {
     name: "说唱节拍",
@@ -57,6 +69,8 @@ export const STYLES = {
     snare: [1, 3],
     hat: "eighth",
     swing: 0.11,
+    scale: [0, 2, 3, 5, 7, 10],
+    rhythm: [0, 0.5, 1, 1.25, 1.75, 2, 2.5],
   },
   nursery: {
     name: "童谣",
@@ -76,6 +90,8 @@ export const STYLES = {
     snare: [1, 3],
     hat: "eighth",
     swing: 0,
+    scale: [0, 2, 4, 7, 9],
+    rhythm: [0, 0.5, 1, 2, 2.5, 3, 3.5],
   },
 };
 
@@ -199,6 +215,156 @@ function scheduleBar(ctx, master, delaySend, noise, time, barIndex, def) {
   scheduleDrums(ctx, master, noise, time, beat, def);
 }
 
+function countSyllables(text) {
+  const clean = String(text || "").replace(/[\s，。、！？；：,.!?;:"'“”‘’（）()《》【】…—·]/g, "");
+  return Math.max(1, Math.min(24, Array.from(clean).length));
+}
+
+function noteSlots(count, def) {
+  if (count === def.rhythm.length) return def.rhythm.slice();
+  if (count <= 1) return [0];
+  const last = def.rhythm[def.rhythm.length - 1];
+  return Array.from({ length: count }, (_, i) => (i * last) / (count - 1));
+}
+
+function lineNotes(count, lineIndex, def) {
+  const contour = CONTOURS[lineIndex % CONTOURS.length];
+  const semis = Array.from({ length: count }, (_, j) =>
+    def.scale[contour[j % contour.length] % def.scale.length]
+  );
+  const mean = semis.reduce((a, b) => a + b, 0) / semis.length;
+  return semis.map((s) => s - mean);
+}
+
+function medianF0(buffer, from, to) {
+  const data = buffer.getChannelData(0);
+  const step = 4;
+  const n = Math.max(0, Math.floor((to - from) / step));
+  if (!n) return 0;
+  const ds = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const o = from + i * step;
+    ds[i] = (data[o] + data[o + 1] + data[o + 2] + data[o + 3]) * 0.25;
+  }
+  const sr = buffer.sampleRate / step;
+  const win = Math.max(128, Math.floor(sr * 0.04));
+  const minLag = Math.max(8, Math.floor(sr / 450));
+  const maxLag = Math.min(win - 1, Math.floor(sr / 75));
+  const found = [];
+  for (let start = 0; start + win + maxLag <= n; start += win) {
+    let energy = 0;
+    for (let i = 0; i < win; i += 2) energy += ds[start + i] * ds[start + i];
+    if (energy / (win / 2) < 0.0004) continue;
+    let bestLag = 0;
+    let best = 0;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let corr = 0;
+      let a2 = 0;
+      let b2 = 0;
+      for (let i = 0; i < win; i += 2) {
+        const a = ds[start + i];
+        const b = ds[start + i + lag];
+        corr += a * b;
+        a2 += a * a;
+        b2 += b * b;
+      }
+      const norm = corr / Math.sqrt(a2 * b2 + 1e-12);
+      if (norm > best) {
+        best = norm;
+        bestLag = lag;
+      }
+    }
+    if (bestLag && best > 0.45) found.push(sr / bestLag);
+  }
+  if (!found.length) return 0;
+  found.sort((a, b) => a - b);
+  return found[Math.floor(found.length / 2)];
+}
+
+function voicedRange(buffer) {
+  const data = buffer.getChannelData(0);
+  const threshold = 0.003;
+  let start = 0;
+  let end = data.length;
+  while (start < end && Math.abs(data[start]) < threshold) start++;
+  while (end > start + 1 && Math.abs(data[end - 1]) < threshold) end--;
+  if (end <= start) return [0, data.length];
+  const pad = Math.floor(buffer.sampleRate * 0.01);
+  return [Math.max(0, start - pad), Math.min(data.length, end + pad)];
+}
+
+// 把整句 TTS 切片，按旋律给每个字换音高，再串联成演唱
+function scheduleSungLine(ctx, dest, buffer, when, lineIndex, text, def, track, send) {
+  if (!buffer) return;
+  const count = countSyllables(text);
+  const slots = noteSlots(count, def);
+  const notes = lineNotes(count, lineIndex, def);
+  const beat = 60 / def.bpm;
+  const lineDur = beat * 4;
+
+  const bus = ctx.createGain();
+  bus.gain.value = 1.9;
+  const delay = ctx.createDelay(0.1);
+  delay.delayTime.value = 0.016;
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 5.1;
+  const lfoDepth = ctx.createGain();
+  lfoDepth.gain.value = 0.0009;
+  lfo.connect(lfoDepth).connect(delay.delayTime);
+  bus.connect(delay).connect(dest);
+  if (send) {
+    const wet = ctx.createGain();
+    wet.gain.value = 0.12;
+    bus.connect(wet).connect(send);
+  }
+  lfo.start(when);
+  lfo.stop(when + lineDur + 1.2);
+  if (track) {
+    track.add(lfo);
+    lfo.onended = () => track.delete(lfo);
+  }
+
+  const [lo, hi] = voicedRange(buffer);
+  const sliceLen = Math.max(1, hi - lo) / count;
+  const refHz = medianF0(buffer, lo, hi);
+  for (let j = 0; j < count; j++) {
+    const t = when + slots[j] * beat;
+    const from = lo + j * sliceLen;
+    const srcHz = medianF0(buffer, from, from + sliceLen);
+    let ratio = Math.pow(2, notes[j] / 12);
+    if (refHz && srcHz) {
+      let f = srcHz;
+      if (f > refHz * 1.7) f /= 2;
+      else if (f < refHz * 0.6) f *= 2;
+      ratio = (refHz * Math.pow(2, notes[j] / 12)) / f;
+    }
+    ratio = Math.min(1.45, Math.max(0.7, ratio));
+    const nextSlot = j + 1 < count ? slots[j + 1] : 4;
+    const noteDur = Math.max(0.12, (nextSlot - slots[j]) * beat + 0.04);
+    const offset = from / buffer.sampleRate;
+    const sourceDur = Math.min(sliceLen / buffer.sampleRate, noteDur * ratio);
+    const outDur = sourceDur / ratio;
+
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = ratio;
+    const g = ctx.createGain();
+    const attack = Math.min(0.014, outDur * 0.3);
+    const release = Math.min(0.045, outDur * 0.35);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(1, t + attack);
+    g.gain.setValueAtTime(1, t + Math.max(attack, outDur - release));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + outDur);
+    src.connect(g).connect(bus);
+    src.start(t, offset, sourceDur);
+    src.stop(t + outDur + 0.02);
+    if (track) {
+      track.add(src);
+      src.onended = () => track.delete(src);
+    }
+  }
+}
+
 export class MusicEngine {
   constructor() {
     this.ctx = null;
@@ -286,19 +452,13 @@ export class MusicEngine {
     return session;
   }
 
-  scheduleVoices(session, buffers, starts) {
-    const { ctx, graph } = session;
+  scheduleVoices(session, buffers, starts, verse = [], style) {
+    const { ctx, graph, def } = session;
+    const tone = STYLES[style] || def;
     buffers.forEach((buffer, i) => {
       if (!buffer) return;
-      const src = ctx.createBufferSource();
-      src.buffer = buffer;
-      const g = ctx.createGain();
-      g.gain.value = 1;
-      src.connect(g).connect(graph.master);
       const when = session.bedStart + Math.max(0, starts[i] || 0);
-      src.start(Math.max(ctx.currentTime, when));
-      session.nodes.add(src);
-      src.onended = () => session.nodes.delete(src);
+      scheduleSungLine(ctx, graph.master, buffer, Math.max(ctx.currentTime, when), i, verse[i], tone, session.nodes, graph.delay);
     });
   }
 
@@ -331,7 +491,7 @@ export class MusicEngine {
   }
 }
 
-export async function renderSongToWav({ style, totalSeconds, voiceBuffers = [], voiceStarts = [] }) {
+export async function renderSongToWav({ style, totalSeconds, voiceBuffers = [], voiceStarts = [], verse = [] }) {
   const def = STYLES[style] || STYLES.folk;
   const sampleRate = 44100;
   const duration = Math.max(4, totalSeconds);
@@ -366,12 +526,7 @@ export async function renderSongToWav({ style, totalSeconds, voiceBuffers = [], 
 
   voiceBuffers.forEach((buffer, i) => {
     if (!buffer) return;
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    const g = ctx.createGain();
-    g.gain.value = 1;
-    src.connect(g).connect(master);
-    src.start(Math.max(0, voiceStarts[i] || 0));
+    scheduleSungLine(ctx, master, buffer, Math.max(0, voiceStarts[i] || 0), i, verse[i], def, null, delay);
   });
 
   const rendered = await ctx.startRendering();
@@ -431,14 +586,14 @@ export function estimateSpeechSeconds(verse, bpm) {
   return total + barDur * 2;
 }
 
-export function computeVoiceTimeline(buffers, bpm) {
-  const barDur = (60 / bpm) * 4;
+export function computeVoiceTimeline(buffers, style) {
+  const def = STYLES[style] || STYLES.folk;
+  const barDur = (60 / def.bpm) * 4;
   let cursor = barDur * 2;
   const starts = [];
-  buffers.forEach((buffer) => {
+  buffers.forEach(() => {
     starts.push(cursor);
-    const dur = buffer ? buffer.duration : 0;
-    cursor += Math.max(barDur * 2, dur + 0.5);
+    cursor += barDur;
   });
   return { starts, totalSeconds: cursor + barDur * 2 };
 }

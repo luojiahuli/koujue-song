@@ -128,7 +128,7 @@ function renderSkeleton() {
   els.downloadBtn.disabled = true;
   els.copyBtn.disabled = true;
   els.playState.textContent = "";
-  els.audioNote.textContent = "正在准备人声…";
+  els.audioNote.textContent = "正在准备演唱…";
 }
 
 function renderResult(result) {
@@ -155,7 +155,7 @@ function renderResult(result) {
   els.downloadBtn.disabled = true;
   els.copyBtn.disabled = false;
   els.playState.textContent = "";
-  els.audioNote.textContent = "正在准备人声…";
+  els.audioNote.textContent = "正在准备演唱…";
   els.songTitle.focus({ preventScroll: true });
 }
 
@@ -329,16 +329,15 @@ async function prepareVoices(result, genId) {
     return;
   }
 
-  const def = STYLES[result.style] || STYLES.folk;
-  const timeline = computeVoiceTimeline(buffers, def.bpm);
+  const timeline = computeVoiceTimeline(buffers, result.style);
   state.ttsState = "ai";
   state.voiceBuffers = buffers;
   state.voiceStarts = timeline.starts;
   state.totalSeconds = timeline.totalSeconds;
-  els.audioNote.textContent = "AI 人声已就绪。导出音频包含人声与伴奏。";
+  els.audioNote.textContent = "AI 演唱已就绪。歌词按旋律演唱，导出包含人声与伴奏。";
   els.playBtn.disabled = false;
   els.downloadBtn.disabled = false;
-  els.playState.textContent = "AI 人声";
+  els.playState.textContent = "AI 演唱";
 }
 
 function highlight(index) {
@@ -381,7 +380,7 @@ function startPlayback() {
 
   if (state.ttsState === "ai" && state.voiceBuffers && state.voiceBuffers.every(Boolean)) {
     const session = engine.startBed(result.style, state.totalSeconds);
-    engine.scheduleVoices(session, state.voiceBuffers, state.voiceStarts);
+    engine.scheduleVoices(session, state.voiceBuffers, state.voiceStarts, result.verse, result.style);
     state.session = session;
     setPlayingUI(true);
     const ctx = session.ctx;
@@ -498,6 +497,7 @@ async function downloadAudio() {
       totalSeconds: withVoice ? state.totalSeconds : estimateSpeechSeconds(result.verse, def.bpm),
       voiceBuffers: withVoice ? state.voiceBuffers : [],
       voiceStarts: withVoice ? state.voiceStarts : [],
+      verse: result.verse,
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
